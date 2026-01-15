@@ -1,0 +1,335 @@
+---
+title: "Capstone Project"
+author: "Jennifer Kirk"
+date: "2025-11-24"
+output: html_document
+---
+
+This R Markdown file is part of Jennie Kirk’s capstone project. While she anticipates obtaining access to current registration data for the 2026 National Square Dance Convention, she is using data from the following sources in the interim:
+  
+  [Overall Convention Attendance](https://nsdcnec.com/past-convention-attendance/)
+  
+  [2025 Attendance](https://75nsdctx.com/registrations/)
+
+
+
+#### Set up R
+```{r error=FALSE}
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+#install.packages("ggrepel")
+library(ggrepel)
+# install.packages("gtools")
+library(gtools)
+#install.packages("usmap")
+library(usmap)
+```
+
+#### Bring in overall data
+
+Overall Data was originally from [here](https://nsdcnec.com/past-convention-attendance/). Jennie copied it into Google Sheets and saved it as a CSV file.
+
+```{r}
+overall <- read.csv("C:/Users/jenni/Downloads/NSQC_Overall.csv")
+```
+
+#### Print out the column names just to verify what they are
+
+```{r}
+colnames(overall)
+```
+#### Generate a line graph for the overall attendance
+
+Added reference line for 2020 when convention was cancelled because of COVID.
+
+```{r}
+ggplot(overall, aes(x=Year, y=Attendees))+geom_line(linewidth = 1)+
+  labs(title="Overall Attendance at National Square Dance Convention by Year",
+       caption = "Red Line is for 2020 when the convention was cancelled due to COVID")+ 
+  geom_vline(xintercept = c(2020), linetype = "solid", color = "red", linewidth = 0.8)
+```
+
+#### Summarize conventions by state
+Find the number of conventions and average attendance by state as well as the min and max years.  Also print out the results. (Do not include 2020 when the convention was cancelled.)
+
+```{r}
+statedt <- overall %>% 
+  filter(Year != 2020) %>%
+  group_by(State) %>% 
+  summarise(
+    meanstate = mean(Attendees),
+    minyear = min(Year),
+    maxyear = max(Year),
+    numcon = n()
+  )
+
+knitr::kable(statedt)
+
+statedt0 <- statedt %>% 
+  rename(state = State)
+
+# plot of the mean attendees by state hosting
+plot_usmap(data = statedt0, values = "meanstate", color = "white") + 
+  scale_fill_continuous(
+    low = "lightblue", high = "blue", 
+    name = "Average Number of Attendees", label = scales::comma
+  ) + 
+  labs(title = "Mean Number of Attendees by State Hosting") +
+  theme(legend.position = "right")
+```
+
+#### Look at line graph by State hosting
+
+
+```{r}
+ggplot(overall, aes(x=Year, y=Attendees,color=State))+geom_line()+
+  labs(title="Overall Attendance at National Square Dance Convention by Year and State")
+```
+
+The line graph by State has 29 lines and is pretty cluttered so subset the data for states with at least 5 conventions.
+
+#### Find states that hosted at least 5 conventions and generate the line graph
+
+```{r}
+overall_ct <- overall %>% 
+  add_count(State, name = "Conventions") %>% 
+  filter(Conventions >= 5)
+
+ggplot(overall_ct, aes(x=Year, y=Attendees,color=State))+geom_line()+
+  labs(title="Overall Attendance at National Square Dance Convention by Year",
+       subtitle="For States that Hosted at Least 5 Conventions")
+```
+
+#### Add overall data on previous graph
+
+Add the overall data on the graph.  First add records to the dataset.
+
+```{r}
+overall_total0 <- overall %>%  mutate(State='All States')
+overall_total <- rbind(overall_total0,overall) %>% 
+  add_count(State, name = "Conventions")
+```
+
+Rerun the graph of at least 5 conventions with the total
+
+```{r}
+ggplot(data=overall_total[overall_total$Conventions >= 5, ], aes(x=Year, y=Attendees,color=State))+geom_line()+
+  labs(title="Overall Attendance at National Square Dance Convention by Year",
+       subtitle="For States that Hosted at Least 5 Conventions and Overall")
+```
+
+#### Look at states that hosted 2 conventions
+
+From the graph by state it looked like there were some states that were almost straight lines so rerun the graph for those that hosted twice just to see.  Went ahead and labelled the lines to make it easier to see but the regular geom_text method was too cluttered.
+
+```{r}
+ggplot(data=overall_total[overall_total$Conventions == 2, ], aes(x=Year, y=Attendees,color=State))+geom_line()+
+  labs(title="Overall Attendance at National Square Dance Convention by Year",
+       subtitle="For States that Hosted 2 Conventions")+
+  geom_text_repel(aes(label = State), # Use geom_text_repel
+                  box.padding = unit(0.5, "lines"), # Add padding around labels
+                  max.overlaps = Inf) # Allow all labels to be shown
+```
+
+Add back in the overall just to see how some of those compare to the overall attendance.
+
+```{r}
+ggplot(data=overall_total[overall_total$Conventions == 2|overall_total$Conventions == 74, ], aes(x=Year, y=Attendees,color=State))+geom_line()+
+  labs(title="Overall Attendance at National Square Dance Convention by Year",
+       subtitle="For States that Hosted 2 Conventions")
+```
+
+#### Instead of by "State" let us look at the line graph by region.
+
+In Kansas, square dancing is currently divided into two regions, referred to as the Gold District and the Blue District.  Jennie is not aware of a regional classification system for the United States. The Area Assignments published by the National Square Dance Convention Executive Committee (https://nsdcnec.com/assignments/) were used as a proxy for regional groupings. 
+
+Eleven regional groupings were identified and coded numerically from 1 to 11, corresponding to the order in which they appear in the source table.
+
+```{r}
+stgroup_1 <- c("Iowa","Kansas","Missouri","Nebraska","Oklahoma","Tennessee")
+stgroup_2 <- c("Indiana","Kentucky","West Virginia","Ohio")
+stgroup_3 <- c("Alaska","Nevada","Wisconsin","Idaho")
+stgroup_4 <- c("Michigan","Minnesota","North Dakota","South Dakota")
+stgroup_5 <- c("Louisiana","Mississippi","Arizona","Hawaii")
+stgroup_6 <- c("Connecticut","Maine","Massachusetts","New Hampshire","Rhode Island","Vermont")
+stgroup_7 <- c("Colorado","Georgia","North Carolina","South Carolina","Texas","Illinois","Montana","Wyoming")
+stgroup_8 <- c("Delaware","Maryland","New Jersey","Virginia")
+stgroup_9 <- c("Arkansas","New Mexico","Utah")
+stgroup_10 <- c("Alabama","New York","Pennsylvania")
+stgroup_11 <- c("Florida","Oregon","California","Washington")
+
+overall_group <- overall %>%  
+  mutate(
+    stgrp = case_when(
+      State %in% stgroup_1 ~ 'Group 1',
+      State %in% stgroup_2 ~ 'Group 2',
+      State %in% stgroup_3 ~ 'Group 3',
+      State %in% stgroup_4 ~ 'Group 4',
+      State %in% stgroup_5 ~ 'Group 5',
+      State %in% stgroup_6 ~ 'Group 6',
+      State %in% stgroup_7 ~ 'Group 7',
+      State %in% stgroup_8 ~ 'Group 8',
+      State %in% stgroup_9 ~ 'Group 9',
+      State %in% stgroup_10 ~ 'Group 10',
+      State %in% stgroup_11 ~ 'Group 11',
+      TRUE ~ 'Other'
+      )
+    )  
+
+#Create a vector to put groups in correct order
+correct_order <- paste0("Group ", 1:11)
+  
+# Apply the order to dataframe
+overall_group <- overall_group %>%
+  mutate(stgrp = factor(stgrp, levels = correct_order))
+
+ggplot(overall_group, aes(x=Year, y=Attendees,color=stgrp))+geom_line()+
+  labs(title="Overall Attendance at National Square Dance Convention by Year and Group")
+
+```
+
+#### Summarize the data by the State groupings and print out.  (Do not include 2020 when the convention was cancelled.)
+
+```{r}
+state_grp0 <- overall_group %>% 
+  filter(Year != 2020) %>%
+  group_by(stgrp) %>% 
+  summarise(
+    meanstate = mean(Attendees),
+    minyear = min(Year),
+    maxyear = max(Year),
+    numcon = n()
+  )
+
+knitr::kable(state_grp0)
+
+
+```
+#### Look at the US by groupings
+```{r}
+# get a dataframe with one record for each state
+states <- data.frame(state = state.name)
+
+states_group <- states %>%  
+  mutate(
+    stgrp = case_when(
+      state %in% stgroup_1 ~ 'Group 1',
+      state %in% stgroup_2 ~ 'Group 2',
+      state %in% stgroup_3 ~ 'Group 3',
+      state %in% stgroup_4 ~ 'Group 4',
+      state %in% stgroup_5 ~ 'Group 5',
+      state %in% stgroup_6 ~ 'Group 6',
+      state %in% stgroup_7 ~ 'Group 7',
+      state %in% stgroup_8 ~ 'Group 8',
+      state %in% stgroup_9 ~ 'Group 9',
+      state %in% stgroup_10 ~ 'Group 10',
+      state %in% stgroup_11 ~ 'Group 11',
+      TRUE ~ 'Other'
+      )
+    )  
+
+# Apply the order to dataframe
+states_group <- states_group %>%
+  mutate(stgrp = factor(stgrp, levels = correct_order))
+
+# plot of the mean attendees by state hosting
+plot_usmap(data = states_group, values = "stgrp", color = "white") + 
+  scale_fill_brewer(palette = "Paired", name = "Groupings") + # Distinct colors
+  theme(legend.position = "right") +
+  labs(title = "US State Groupings")
+```
+
+
+
+#### Bring in 2025 data
+The 2025 Data was originally from [here](https://www.74nsdc.com/numberofattendeesfor74th) although Jennie did add an unknown Country record to get the count to match the overall data.
+
+```{r}
+year20250 <- read.csv("C:/Users/jenni/Downloads/NSQC_2025.csv")
+colnames(year20250)
+```
+
+Create state2 variable with other or unknown, create a group variable and 
+split data by that group variable.  Lump in unknown with US for graphs
+
+```{r}
+year2025 <- year20250 %>% 
+  mutate(newstate = case_when(
+    Country == "Unknown" ~ "Unknown",
+    Country != "United States" ~ "Out of US",
+    State != "" ~ State
+  )) %>% 
+  mutate(group = case_when(
+    Country == "Unknown" ~ "A",
+    Country != "United States" ~ "B",
+    State != "" ~ "A"
+  )) 
+
+list_of_groups <- split(year2025, year2025$group)
+
+df_Other <-list_of_groups$B
+df_US <-list_of_groups$A
+```
+
+
+#### Create the pie chart for outside of US
+```{r}
+ggplot(df_Other, aes(x = "", y = Count, fill = Country)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Pie Chart of Registrations From Outside US", x = NULL, y = NULL, fill = "Country") +
+  theme_void() 
+
+```
+
+#### Create the bar chart for other Countries alphabetically
+
+```{r}
+ggplot(df_Other, aes(x = Country, y = Count)) +
+  geom_bar(stat = "identity", fill = "#008080") +
+  theme(axis.text.x = element_text(angle = 90, hjust=1)) +
+  labs(title = "Registrations Alphabetically by Country Outside US",
+       x = "Country",
+       y = "Count") 
+```
+
+
+# Create the bar chart for US states alphabetically
+```{r}
+ggplot(df_US, aes(x = newstate, y = Count)) +
+  geom_bar(stat = "identity", fill = "#008080") +
+  theme(axis.text.x = element_text(angle = 90, hjust=1)) +
+  labs(title = "Registrations Alphabetically by US State",
+       x = "States",
+       y = "Count") 
+```
+
+# Create the bar chart for US states by attendance
+```{r}
+ggplot(df_US, aes(x = reorder(newstate, -Count), y = Count)) +
+  geom_bar(stat = "identity", fill = "#008080") +
+  theme(axis.text.x = element_text(angle = 90, hjust=1)) +
+  labs(title = "Registrations by US State Descending Count",
+       x = "States",
+       y = "Count") 
+```
+
+# Create the bar chart for US states by attendance without Texas
+```{r}
+df_US_notx <- df_US %>% 
+  filter(newstate != "Texas")
+
+ggplot(df_US_notx, aes(x = reorder(newstate, -Count), y = Count)) +
+  geom_bar(stat = "identity", fill = "#008080") +
+  theme(axis.text.x = element_text(angle = 90, hjust=1)) +
+  labs(title = "Registrations by US State Descending Count",
+       subtitle = "Excluding Texas",
+       x = "States",
+       y = "Count") 
+```
+
+
+
+

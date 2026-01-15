@@ -1,0 +1,295 @@
+---
+title: "2026 National Square Dance Convention"
+author: "Jennifer Kirk"
+date: "2025-12-29"
+output: html_document
+---
+
+This R Markdown file is part of Jennie Kirk’s capstone project. She contacted the 2026 National Square Dance Convention and was sent 3 CSV files with registration data for the convention to be held in Waco, TX June 24 - 27th.
+
+
+
+#### Set up R
+```{r error=FALSE}
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+#install.packages("usmap")
+library(usmap)
+#install.packages("ggrepel")
+library(ggrepel)
+#install.packages("gtools")
+library(gtools)
+#install.packages("UpSetR")
+library(UpSetR)
+```
+
+#### Bring in CSV files
+
+```{r}
+info <- read.csv("C:/Users/jenni/Downloads/75th_Persons_Information.csv")
+leaders <- read.csv("C:/Users/jenni/Downloads/75th_Dance_Leaders.csv")
+pref <- read.csv("C:/Users/jenni/Downloads/75th_Dance_Preferences.csv")
+
+# Print out the column names just to verify what they are
+colnames(info)
+colnames(leaders)
+colnames(pref)
+
+```
+
+
+
+```{r}
+# add a constant value to the preference dataset to use when pivoting the dataframe
+pref$indic <- 1
+
+# pivot the dataset for dance type
+preft <- pref %>%
+  pivot_wider(
+    names_from = X.lk..Dance.Type,
+    values_from = indic,
+    values_fill = 0
+  )
+```
+
+### Combine three dataframes into one
+
+```{r}
+combined <- info %>%
+  full_join(leaders, by = "X.psn..ID") %>%
+  full_join(preft, by = "X.psn..ID")
+
+colnames(combined)
+
+```
+
+### Look into the data 
+
+```{r}
+
+# check if there are any duplicate id values
+ckcombined <- combined %>% distinct(X.psn..ID)
+#visually checked that there were 2342 observations in both combined and ckcombined
+
+# check two different country variables
+pivot_country <- table(combined$X.ab..Country.x,combined$X.ab..Country.y) 
+
+print(pivot_country)
+
+# check two different state columns  - there are too many options for the table function to be all that
+# effective so subset the data where the two values do not match
+pivot_state <- subset(combined,X.ab..State.Province.x !=X.ab..State.Province.y)
+
+# add a print (there are no records)
+print(pivot_state)
+
+# take a look at the unique values
+ck_state <- unique(combined$X.ab..State.Province.x)
+
+# Note there are provinces listed and Texas appears as TX and Tx
+print(ck_state)
+
+# select columns to keep and rename them 
+clean_combined0 <- combined %>% 
+  select(ID = X.psn..ID,
+         number_prior_conventions = X.psn..Prior.Convention,
+         solo = X.psn..Solo,
+         youth = X.psn..Youth,
+         country = X.ab..Country.x,
+         state = X.ab..State.Province.x,
+         dl_caller = X.psn..Caller,
+         dl_cuer = X.psn..Cuer,
+         dl_lines = X.psn..Lines,
+         dl_contra = X.psn..Contra,
+         dl_clog = X.psn..Clog,
+         refunded = X.psn..Refunded,
+         type_MS = Mainstream,
+         type_PLUS = Plus,
+         type_CONTRA = Contra,
+         type_SOLO = "Solo Dancer", 
+         type_ROUND = "Round Dancing",
+         type_SSD = "Social Square Dance",
+         type_A = Advanced,
+         type_C = Challenge,
+         type_LINE = "Line Dancing",
+         type_HEX = Hexagons,
+         type_CLOG = Clogging,
+         type_DBD = DBD,
+         type_HANDI = Handicapable)
+
+# make sure all state values that have a length of two are capitalized
+clean_combined <- clean_combined0 %>%
+  mutate(
+    state = ifelse(str_length(state) == 2, str_to_upper(state), state)
+  )
+```
+
+### Write out a cleaned combined dataset
+
+```{r}
+
+write.csv(clean_combined[, c("ID", "number_prior_conventions", "state", "country", "solo", "youth")], "combined.csv", row.names = FALSE)
+
+```
+
+### Create a dataset and map with the count and category for count by state
+
+```{r}
+
+# add state count
+clean_combined <- clean_combined %>% 
+  add_count(state, name = "state_count")
+
+# only keep registrations from USA and one per state
+statecount <- clean_combined %>% 
+  filter(country == "USA") %>%
+  distinct(state, state_count)
+
+#create breaks for every 20 percent and print them
+breaks <- quantile(statecount$state_count, probs = seq(0, 1, 0.20), na.rm = TRUE)
+print(breaks)
+
+# add column with values based on those breaks
+statecount <- statecount %>%
+  mutate(quartile_value = cut(state_count, 
+                              breaks = breaks, 
+                              include.lowest = TRUE, 
+                              labels = c("1 - 5", "6 - 17", "18 -27", "28 - 55", "56 - 866")))
+
+# write out the csv file
+write.csv(statecount, "statecount.csv", row.names = FALSE)
+
+# plot of the counts by state
+plot_usmap(data = statecount, values = "state_count", color = "white") + 
+  scale_fill_continuous(
+    low = "lightblue", high = "blue", 
+    name = "ID Count", label = scales::comma
+  ) + 
+  labs(title = "Count of IDs by State") +
+  theme(legend.position = "right")
+
+# plot the map by quartile
+plot_usmap(data = statecount, values = "quartile_value", color = "white") + 
+  # Use scale_fill_manual for specific custom colors
+  scale_fill_manual(
+    values = c("1 - 5" = "cyan1", "6 - 17" = "darkturquoise", "18 -27" = "cornflowerblue", 
+               "28 - 55" = "blue3", "56 - 866" = "blue4"), 
+    name = "Quartile Level",
+    na.value = "snow3" # Color for states not in your data
+  ) + 
+  labs(title = "US States by Quartile Category") +
+  theme(legend.position = "right")
+
+
+```
+
+### Take a look at the type of dances registrants perfer
+
+```{r}
+
+# only keep records where at least one type of dance was selected
+# there were two types of registration forms so not everyone was asked
+dances0 <- clean_combined |>
+  select (ID, number_prior_conventions, solo, youth, country, state,
+         type_MS, type_PLUS, type_CONTRA, type_SOLO, type_ROUND, type_SSD,
+         type_A, type_C, type_LINE, type_HEX, type_CLOG, type_DBD, type_HANDI) |>
+         filter(if_any(c(type_MS, type_PLUS, type_CONTRA, type_SOLO, type_ROUND, type_SSD,
+         type_A, type_C, type_LINE, type_HEX, type_CLOG, type_DBD, type_HANDI), ~!is.na(.x)))
+
+# pivot the type of dances preferred
+dances <- dances0 %>%
+  pivot_longer(
+    cols = starts_with("type_"),
+    names_to = "dancetype",
+    names_prefix = "type_",
+    values_to = "selected"
+  ) %>% 
+  filter(selected == 1) %>%
+  mutate(dummy = "All")
+
+# get counts by dancetype
+summary_dance <- dances %>%
+  count(dancetype, sort = TRUE) 
+
+# get the total number of registrations that also responded to type of dance
+totaltype <- clean_combined %>%
+  filter(if_any(c(type_MS, type_PLUS, type_CONTRA, type_SOLO, type_ROUND, type_SSD,
+         type_A, type_C, type_LINE, type_HEX, type_CLOG, type_DBD, type_HANDI), ~!is.na(.x))) %>% 
+  count(, name = "total_participants") %>%
+  mutate(dummy = "All")
+
+# get the summary by dance type
+summary_pct <- dances %>%
+  group_by(dummy, dancetype) %>%
+  summarize(count = n(), .groups = 'drop') %>%
+  # Join the totals back in to calculate %
+  left_join(totaltype, by = "dummy") %>%
+  mutate(percent = (count / total_participants) * 100)
+
+# write out csv file
+write.csv(summary_pct, "dancetype.csv", row.names = FALSE)
+
+# look at plot of preferred dance type
+ggplot(data=summary_pct,aes(x = .data$dancetype, y = .data$percent)) +
+  geom_col() +
+  labs(title = "Preferred Dance Type",
+       x="Type of Dance",
+       y="Percent of Participants Selected") 
+
+# rename the top 5 most preferred dance types
+dances1 <- dances0 %>%
+  rename(Mainstream = type_MS, 
+         Plus = type_PLUS, 
+         "Round Dancing" = type_ROUND, 
+         Advanced = type_A, 
+         "Line Dancing" = type_LINE)
+ 
+# UpSetR package was built using an older version of ggplot2 logic and uses aes_string() which 
+# throws some warnings so supress those warnings
+suppressWarnings({
+  # create an UpSet plot to show how the type of dances interact
+  upset(dances1, 
+        sets = c("Mainstream", "Plus", "Round Dancing", "Advanced", "Line Dancing"), 
+        order.by = "freq",
+        mainbar.y.label = "Number of Shared Respondents",
+        sets.x.label = "Respondents per Activity",
+        text.scale = c(1.5, 1.3, 1.2, 1.2, 1.5, 1.2))
+})
+
+
+```
+
+#### In Jennie's experience line dancing at square dances has been informal and taught as they go so she was surprised that there were 2 registrations with only line dancing so examine that more
+
+
+```{r}
+
+# subset data for linedancing
+linedance0 <- dances1[dances1$"Line Dancing" == 1,]
+
+# go ahead and rename other dance type variables
+linedance <- linedance0 %>%
+  rename(Contra = type_CONTRA,
+         SSD = type_SSD,
+         Challenge = type_C, 
+         Hex = type_HEX, 
+         Clog = type_CLOG, 
+         DBD = type_DBD, 
+         HANDI = type_HANDI)
+
+# there were no registrations that selected Line Dancing and either DBD nor Handi so those were left off
+suppressWarnings({
+  upset(linedance, 
+        sets = c("Line Dancing","Mainstream", "Plus", "Round Dancing", "Advanced", "Contra", "SSD",
+                 "Challenge","Hex","Clog"), 
+        order.by = "freq",
+        mainbar.y.label = "Number of Shared Respondents",
+        sets.x.label = "Respondents per Activity",
+        text.scale = c(1.5, 1.3, 1.2, 1.2, 1.1, 1.2))
+})
+
+# confirmed the two that were just line dancing also selected challenge as another dance type
+```
+
